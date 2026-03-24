@@ -1,96 +1,209 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cyrus Assistive Link</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs" type="module"></script>
     <style>
-        body { background: black; color: #ffff00; font-family: sans-serif; text-align: center; overflow: hidden; }
-        #video-container { position: fixed; top: 0; right: 0; width: 200px; border: 2px solid #333; }
-        #camera-feed { width: 100%; transform: scaleX(-1); }
-        #phrase-list { margin-top: 50px; display: flex; flex-direction: column; align-items: center; }
-        .phrase { 
-            font-size: 40px; font-weight: bold; padding: 20px; margin: 10px;
-            border: 5px solid transparent; width: 80%; transition: 0.2s;
+        body { 
+            background: black; 
+            color: #ffff00; 
+            font-family: sans-serif; 
+            text-align: center; 
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100vh;
         }
-        .active { border-color: #ffff00; background: #333; transform: scale(1.1); }
-        #controls { position: fixed; bottom: 10px; left: 10px; background: #222; padding: 10px; font-size: 12px; }
-    </script>
+        #status-bar {
+            background: #222;
+            color: white;
+            padding: 10px;
+            font-size: 14px;
+            border-bottom: 2px solid #444;
+        }
+        #video-container { 
+            position: fixed; 
+            top: 50px; 
+            right: 10px; 
+            width: 150px; 
+            border: 2px solid #444;
+            z-index: 100;
+        }
+        #camera-feed { width: 100%; transform: scaleX(-1); }
+        
+        #phrase-list { 
+            margin-top: 40px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            height: 70vh;
+            justify-content: center;
+        }
+        .phrase { 
+            font-size: 3rem; 
+            font-weight: bold; 
+            padding: 30px; 
+            margin: 15px;
+            border: 8px solid transparent; 
+            width: 85%; 
+            border-radius: 20px;
+            transition: all 0.2s ease;
+        }
+        .active { 
+            border-color: #ffff00; 
+            background: #222; 
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(255, 255, 0, 0.3);
+        }
+        #settings { 
+            position: fixed; 
+            bottom: 0; 
+            width: 100%; 
+            background: #111; 
+            padding: 15px; 
+            display: flex;
+            justify-content: space-around;
+            font-size: 14px;
+        }
+        input[type=range] { width: 100px; }
+    </style>
 </head>
 <body>
+
+    <div id="status-bar">Initializing System...</div>
 
     <div id="video-container">
         <video id="camera-feed" autoplay playsinline></video>
     </div>
 
     <div id="phrase-list">
-        <div class="phrase active" id="p0">YES</div>
-        <div class="phrase" id="p1">NO</div>
-        <div class="phrase" id="p2">I AM HUNGRY</div>
-        <div class="phrase" id="p3">I NEED WATER</div>
-        <div class="phrase" id="p4">I NEED HELP</div>
-        <div class="phrase" id="p5">I AM TIRED</div>
+        <div class="phrase active">YES</div>
+        <div class="phrase">NO</div>
+        <div class="phrase">I AM HUNGRY</div>
+        <div class="phrase">I NEED HELP</div>
+        <div class="phrase">I AM TIRED</div>
     </div>
 
-    <div id="controls">
-        Mouth Sensitivity: <input type="range" id="mSens" min="5" max="50" value="20"><br>
-        Eye Sensitivity: <input type="range" id="eSens" min="5" max="50" value="25">
+    <div id="settings">
+        <div>
+            Mouth Open: <input type="range" id="mSens" min="5" max="60" value="25">
+        </div>
+        <div>
+            Eye Close: <input type="range" id="eSens" min="5" max="40" value="22">
+        </div>
     </div>
 
     <script type="module">
         import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
 
         const video = document.getElementById("camera-feed");
+        const statusBar = document.getElementById("status-bar");
         const phrases = document.querySelectorAll(".phrase");
+        
         let currentIndex = 0;
         let faceLandmarker;
         let lastMouthOpen = false;
         let lastEyeClosed = false;
 
-        async function setup() {
-            const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
-            faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-                baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`, delegate: "GPU" },
-                runningMode: "VIDEO"
-            });
-            
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            video.addEventListener("loadeddata", predictWebcam);
+        async function startApp() {
+            try {
+                statusBar.innerText = "Step 1: Loading AI Modules (20MB)...";
+                const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
+                
+                faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+                    baseOptions: { 
+                        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`, 
+                        delegate: "GPU" 
+                    },
+                    runningMode: "VIDEO",
+                    outputFaceBlendshapes: true
+                });
+
+                statusBar.innerText = "Step 2: Requesting Camera Access...";
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", width: 640, height: 480 } 
+                });
+                video.srcObject = stream;
+
+                video.onloadeddata = () => {
+                    statusBar.innerText = "System Ready: Looking for face...";
+                    predictLoop();
+                };
+
+            } catch (error) {
+                statusBar.style.background = "red";
+                statusBar.innerText = "ERROR: " + error.message;
+                console.error(error);
+            }
         }
 
-        async function predictWebcam() {
+        function predictLoop() {
+            if (!faceLandmarker) return;
+
             const results = faceLandmarker.detectForVideo(video, performance.now());
+            
             if (results.faceLandmarks && results.faceLandmarks[0]) {
+                statusBar.innerText = "Tracking Active";
+                statusBar.style.background = "#006400"; // Dark green when tracking
+                
                 const landmarks = results.faceLandmarks[0];
                 
-                // MOUTH: Dist between index 13 and 14
+                // MOUTH DETECTION (Using lip landmarks 13 and 14)
                 const mDist = Math.abs(landmarks[13].y - landmarks[14].y) * 1000;
-                const mThresh = document.getElementById("mSens").value;
+                const mThresh = parseInt(document.getElementById("mSens").value);
                 
                 if (mDist > mThresh && !lastMouthOpen) {
-                    // Trigger "Next"
-                    phrases[currentIndex].classList.remove("active");
-                    currentIndex = (currentIndex + 1) % phrases.length;
-                    phrases[currentIndex].classList.add("active");
+                    cycleSelection();
                     lastMouthOpen = true;
-                } else if (mDist < mThresh) { lastMouthOpen = false; }
+                } else if (mDist < (mThresh * 0.8)) { 
+                    lastMouthOpen = false; 
+                }
 
-                // EYES: Average of eyelid distance
-                const eDist = (Math.abs(landmarks[159].y - landmarks[145].y) + Math.abs(landmarks[386].y - landmarks[374].y)) / 2 * 1000;
-                const eThresh = document.getElementById("eSens").value;
+                // EYE DETECTION (Using average of both eyelids)
+                const leftEye = Math.abs(landmarks[159].y - landmarks[145].y);
+                const rightEye = Math.abs(landmarks[386].y - landmarks[374].y);
+                const eDist = ((leftEye + rightEye) / 2) * 1000;
+                const eThresh = parseInt(document.getElementById("eSens").value);
 
                 if (eDist < eThresh && !lastEyeClosed) {
-                    // Trigger "Speak"
-                    const text = phrases[currentIndex].innerText;
-                    const msg = new SpeechSynthesisUtterance(text);
-                    window.speechSynthesis.speak(msg);
+                    confirmSelection();
                     lastEyeClosed = true;
-                } else if (eDist > eThresh) { lastEyeClosed = false; }
+                } else if (eDist > (eThresh * 1.2)) { 
+                    lastEyeClosed = false; 
+                }
+            } else {
+                statusBar.innerText = "Searching for face... (Ensure good lighting)";
+                statusBar.style.background = "#444";
             }
-            window.requestAnimationFrame(predictWebcam);
+            
+            requestAnimationFrame(predictLoop);
         }
 
-        setup();
+        function cycleSelection() {
+            phrases[currentIndex].classList.remove("active");
+            currentIndex = (currentIndex + 1) % phrases.length;
+            phrases[currentIndex].classList.add("active");
+            // Optional: Add a small click sound here
+        }
+
+        function confirmSelection() {
+            const textToSpeak = phrases[currentIndex].innerText;
+            const utterance = new SpeechSynthesisUtterance(textToSpeak);
+            utterance.rate = 0.9; // Slightly slower for clarity
+            window.speechSynthesis.speak(utterance);
+            
+            // Visual feedback for selection
+            phrases[currentIndex].style.background = "white";
+            phrases[currentIndex].style.color = "black";
+            setTimeout(() => {
+                phrases[currentIndex].style.background = "";
+                phrases[currentIndex].style.color = "";
+            }, 500);
+        }
+
+        startApp();
     </script>
 </body>
 </html>
