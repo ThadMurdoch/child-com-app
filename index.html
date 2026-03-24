@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cyrus Assistive Link</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs" type="module"></script>
+    <style>
+        body { background: black; color: #ffff00; font-family: sans-serif; text-align: center; overflow: hidden; }
+        #video-container { position: fixed; top: 0; right: 0; width: 200px; border: 2px solid #333; }
+        #camera-feed { width: 100%; transform: scaleX(-1); }
+        #phrase-list { margin-top: 50px; display: flex; flex-direction: column; align-items: center; }
+        .phrase { 
+            font-size: 40px; font-weight: bold; padding: 20px; margin: 10px;
+            border: 5px solid transparent; width: 80%; transition: 0.2s;
+        }
+        .active { border-color: #ffff00; background: #333; transform: scale(1.1); }
+        #controls { position: fixed; bottom: 10px; left: 10px; background: #222; padding: 10px; font-size: 12px; }
+    </script>
+</head>
+<body>
+
+    <div id="video-container">
+        <video id="camera-feed" autoplay playsinline></video>
+    </div>
+
+    <div id="phrase-list">
+        <div class="phrase active" id="p0">YES</div>
+        <div class="phrase" id="p1">NO</div>
+        <div class="phrase" id="p2">I AM HUNGRY</div>
+        <div class="phrase" id="p3">I NEED WATER</div>
+        <div class="phrase" id="p4">I NEED HELP</div>
+        <div class="phrase" id="p5">I AM TIRED</div>
+    </div>
+
+    <div id="controls">
+        Mouth Sensitivity: <input type="range" id="mSens" min="5" max="50" value="20"><br>
+        Eye Sensitivity: <input type="range" id="eSens" min="5" max="50" value="25">
+    </div>
+
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
+
+        const video = document.getElementById("camera-feed");
+        const phrases = document.querySelectorAll(".phrase");
+        let currentIndex = 0;
+        let faceLandmarker;
+        let lastMouthOpen = false;
+        let lastEyeClosed = false;
+
+        async function setup() {
+            const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
+            faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+                baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`, delegate: "GPU" },
+                runningMode: "VIDEO"
+            });
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            video.addEventListener("loadeddata", predictWebcam);
+        }
+
+        async function predictWebcam() {
+            const results = faceLandmarker.detectForVideo(video, performance.now());
+            if (results.faceLandmarks && results.faceLandmarks[0]) {
+                const landmarks = results.faceLandmarks[0];
+                
+                // MOUTH: Dist between index 13 and 14
+                const mDist = Math.abs(landmarks[13].y - landmarks[14].y) * 1000;
+                const mThresh = document.getElementById("mSens").value;
+                
+                if (mDist > mThresh && !lastMouthOpen) {
+                    // Trigger "Next"
+                    phrases[currentIndex].classList.remove("active");
+                    currentIndex = (currentIndex + 1) % phrases.length;
+                    phrases[currentIndex].classList.add("active");
+                    lastMouthOpen = true;
+                } else if (mDist < mThresh) { lastMouthOpen = false; }
+
+                // EYES: Average of eyelid distance
+                const eDist = (Math.abs(landmarks[159].y - landmarks[145].y) + Math.abs(landmarks[386].y - landmarks[374].y)) / 2 * 1000;
+                const eThresh = document.getElementById("eSens").value;
+
+                if (eDist < eThresh && !lastEyeClosed) {
+                    // Trigger "Speak"
+                    const text = phrases[currentIndex].innerText;
+                    const msg = new SpeechSynthesisUtterance(text);
+                    window.speechSynthesis.speak(msg);
+                    lastEyeClosed = true;
+                } else if (eDist > eThresh) { lastEyeClosed = false; }
+            }
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        setup();
+    </script>
+</body>
+</html>
