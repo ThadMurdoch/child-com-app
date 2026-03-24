@@ -1,103 +1,81 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyrus Link</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs" type="module"></script>
     <style>
-        body { background: black; color: #ffff00; font-family: sans-serif; text-align: center; margin: 0; overflow: hidden; height: 100vh; }
-        #status-bar { background: #333; color: white; padding: 15px; font-weight: bold; }
-        #phrase-list { margin-top: 20px; display: flex; flex-direction: column; align-items: center; height: 60vh; justify-content: center; }
-        .phrase { font-size: 3rem; font-weight: bold; padding: 25px; margin: 10px; border: 8px solid transparent; width: 85%; border-radius: 15px; }
-        .active { border-color: #ffff00; background: #222; }
-        #video-container { position: fixed; top: 60px; right: 10px; width: 120px; border: 1px solid #555; z-index: 100; }
-        video { width: 100%; transform: scaleX(-1); }
-        #start-btn { 
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            padding: 30px; font-size: 2rem; background: #ffff00; color: black; 
-            border: none; border-radius: 10px; z-index: 1000; cursor: pointer;
-        }
+        body { background: #000; color: #ff0; font-family: sans-serif; text-align: center; margin: 0; }
+        #status { background: #444; color: #fff; padding: 20px; font-weight: bold; font-size: 1.2rem; }
+        .phrase { font-size: 3rem; padding: 30px; margin: 10px; border: 5px solid #444; }
+        .active { border-color: #ff0; background: #222; }
+        #start-btn { width: 100%; padding: 40px; font-size: 2rem; background: #ff0; color: #000; border: none; font-weight: bold; }
+        #vid { position: fixed; bottom: 10px; right: 10px; width: 100px; opacity: 0.5; transform: scaleX(-1); }
     </style>
 </head>
 <body>
 
-    <button id="start-btn">TAP TO START CAMERA</button>
-    <div id="status-bar">Waiting for User...</div>
+<button id="start-btn" onclick="init()">CLICK HERE TO START</button>
+<div id="status">READY - TAP BUTTON ABOVE</div>
 
-    <div id="video-container">
-        <video id="camera-feed" autoplay playsinline></video>
-    </div>
+<div id="phrases">
+    <div class="phrase active">YES</div>
+    <div class="phrase">NO</div>
+    <div class="phrase">HELP</div>
+</div>
 
-    <div id="phrase-list">
-        <div class="phrase active">YES</div>
-        <div class="phrase">NO</div>
-        <div class="phrase">I AM HUNGRY</div>
-        <div class="phrase">I NEED HELP</div>
-    </div>
+<video id="vid" autoplay playsinline></video>
 
-    <script type="module">
-        import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
+<script type="module">
+    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
 
-        const video = document.getElementById("camera-feed");
-        const statusBar = document.getElementById("status-bar");
-        const startBtn = document.getElementById("start-btn");
-        const phrases = document.querySelectorAll(".phrase");
+    window.init = async function() {
+        const status = document.getElementById("status");
+        const btn = document.getElementById("start-btn");
+        btn.style.display = "none";
         
-        let faceLandmarker;
-        let currentIndex = 0;
-        let lastM = false; let lastE = false;
+        try {
+            status.innerText = "1. Downloading AI... Please wait.";
+            const resolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
+            
+            const landmarker = await FaceLandmarker.createFromOptions(resolver, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
+                runningMode: "VIDEO"
+            });
 
-        startBtn.onclick = async () => {
-            startBtn.style.display = "none";
-            statusBar.innerText = "Loading AI Models...";
-            try {
-                const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
-                faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-                    baseOptions: { 
-                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-                        delegate: "GPU" 
-                    },
-                    runningMode: "VIDEO"
-                });
+            status.innerText = "2. Starting Camera...";
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            const video = document.getElementById("vid");
+            video.srcObject = stream;
 
-                statusBar.innerText = "Opening Camera...";
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                video.srcObject = stream;
-                video.onloadeddata = () => {
-                    statusBar.innerText = "System Active";
-                    runDetection();
-                };
-            } catch (e) {
-                statusBar.innerText = "Error: " + e.message;
-                statusBar.style.background = "red";
+            status.innerText = "3. SYSTEM ACTIVE";
+            status.style.background = "green";
+
+            const phrases = document.querySelectorAll(".phrase");
+            let idx = 0; let lastM = false;
+
+            function loop() {
+                const result = landmarker.detectForVideo(video, performance.now());
+                if (result.faceLandmarks && result.faceLandmarks[0]) {
+                    const p = result.faceLandmarks[0];
+                    const m = Math.abs(p[13].y - p[14].y) * 1000;
+                    
+                    if (m > 25 && !lastM) {
+                        phrases[idx].classList.remove("active");
+                        idx = (idx + 1) % phrases.length;
+                        phrases[idx].classList.add("active");
+                        lastM = true;
+                    } else if (m < 20) { lastM = false; }
+                }
+                requestAnimationFrame(loop);
             }
-        };
+            loop();
 
-        function runDetection() {
-            const result = faceLandmarker.detectForVideo(video, performance.now());
-            if (result.faceLandmarks && result.faceLandmarks[0]) {
-                const pts = result.faceLandmarks[0];
-                
-                // MOUTH (Points 13 & 14)
-                const m = Math.abs(pts[13].y - pts[14].y) * 1000;
-                if (m > 25 && !lastM) {
-                    phrases[currentIndex].classList.remove("active");
-                    currentIndex = (currentIndex + 1) % phrases.length;
-                    phrases[currentIndex].classList.add("active");
-                    lastM = true;
-                } else if (m < 20) { lastM = false; }
-
-                // EYES (Points 159 & 145)
-                const e = Math.abs(pts[159].y - pts[145].y) * 1000;
-                if (e < 22 && !lastE) {
-                    const msg = new SpeechSynthesisUtterance(phrases[currentIndex].innerText);
-                    window.speechSynthesis.speak(msg);
-                    lastE = true;
-                } else if (e > 25) { lastE = false; }
-            }
-            requestAnimationFrame(runDetection);
+        } catch (e) {
+            status.innerText = "ERROR: " + e.message;
+            status.style.background = "red";
+            console.error(e);
         }
-    </script>
+    }
+</script>
 </body>
 </html>
