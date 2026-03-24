@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Diagnostic</title>
+    <style>
+        body { background: #000; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
+        #vid { width: 90%; max-width: 500px; border: 5px solid #444; background: #222; transform: scaleX(-1); }
+        #status { padding: 20px; margin: 10px; font-weight: bold; border-radius: 10px; }
+        .waiting { background: #666; }
+        .success { background: green; }
+        .error { background: red; }
+        button { padding: 20px; font-size: 1.2rem; cursor: pointer; background: #ff0; border: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Camera Diagnostic</h1>
+    <p>This test checks if your browser can talk to your phone's camera.</p>
+
+    <div id="status" class="waiting">Status: Ready to Test</div>
+    
+    <button onclick="testCamera()">CLICK TO TEST CAMERA</button>
+    
+    <br><br>
+    <video id="vid" autoplay playsinline></video>
+
+    <script>
+        async function testCamera() {
+            const status = document.getElementById('status');
+            const video = document.getElementById('vid');
+            
+            status.innerText = "Status: Requesting Access...";
+            status.className = "waiting";
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" } 
+                });
+                
+                video.srcObject = stream;
+                status.innerText = "Status: SUCCESS! Camera is working.";
+                status.className = "success";
+                
+                // Keep video playing
+                video.onloadedmetadata = () => {
+                    video.play();
+                };
+            } catch (err) {
+                status.innerText = "Status: FAILED - " + err.name + ": " + err.message;
+                status.className = "error";
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
