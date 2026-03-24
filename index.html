@@ -2,21 +2,24 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyrus Communicator</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs" type="module"></script>
     <style>
         body { background: #000; color: #ff0; font-family: sans-serif; text-align: center; margin: 0; }
-        #status { background: #333; color: #fff; padding: 15px; font-weight: bold; }
-        .phrase { font-size: 3rem; padding: 25px; margin: 10px; border: 8px solid #444; border-radius: 15px; }
+        #status { background: #333; color: #fff; padding: 15px; font-weight: bold; min-height: 30px; }
+        .phrase { font-size: 2.5rem; padding: 25px; margin: 10px; border: 8px solid #444; border-radius: 15px; }
         .active { border-color: #ff0; background: #222; }
-        #start-btn { width: 100%; padding: 40px; font-size: 2rem; background: #ff0; color: #000; border: none; font-weight: bold; cursor: pointer; }
-        #vid { position: fixed; top: 60px; right: 10px; width: 120px; border: 2px solid #550; transform: scaleX(-1); background: #222; }
+        #start-btn { width: 90%; padding: 30px; margin: 20px; font-size: 1.5rem; background: #ff0; color: #000; border: none; font-weight: bold; border-radius: 10px; }
+        #vid { width: 160px; height: 120px; background: #222; border: 3px solid #ff0000; transform: scaleX(-1); margin-top: 10px; }
+        .camera-on { border-color: #00ff00 !important; }
     </style>
 </head>
 <body>
 
-<button id="start-btn">TAP TO OPEN CAMERA</button>
-<div id="status">READY: TAP BUTTON ABOVE</div>
+<div id="status">READY TO START</div>
+<button id="start-btn" onclick="runEverything()">1. START CAMERA & AI</button>
 
+<br>
 <video id="vid" autoplay playsinline></video>
 
 <div id="phrases">
@@ -26,73 +29,71 @@
     <div class="phrase">HUNGRY</div>
 </div>
 
-<script type="module">
-    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
-
-    const btn = document.getElementById("start-btn");
-    const status = document.getElementById("status");
-    const video = document.getElementById("vid");
-    const phrases = document.querySelectorAll(".phrase");
-
-    // This function starts when you click the button
-    window.startCommunicationApp = async function() {
+<script>
+    // PART 1: THE CAMERA (Simple code like test.html)
+    async function runEverything() {
+        const btn = document.getElementById("start-btn");
+        const status = document.getElementById("status");
+        const video = document.getElementById("vid");
+        
         btn.style.display = "none";
         status.innerText = "Requesting Camera...";
 
         try {
-            // STEP A: START CAMERA IMMEDIATELY (Like the test did)
+            // Force the camera on first
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "user" } 
+                video: { facingMode: "user", width: 320, height: 240 } 
             });
             video.srcObject = stream;
-            status.innerText = "Camera OK. Now loading AI...";
-            status.style.background = "blue";
+            video.classList.add("camera-on");
+            status.innerText = "Camera Active. Loading AI...";
 
-            // STEP B: LOAD AI MODELS IN BACKGROUND
-            const resolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
-            const landmarker = await FaceLandmarker.createFromOptions(resolver, {
-                baseOptions: { 
-                    // Using an alternate model path
-                    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" 
-                },
-                runningMode: "VIDEO"
-            });
-
-            status.innerText = "SYSTEM ACTIVE - Tracking Face";
-            status.style.background = "green";
-
-            let idx = 0;
-            let lastM = false;
-
-            function detect() {
-                const result = landmarker.detectForVideo(video, performance.now());
-                if (result.faceLandmarks && result.faceLandmarks[0]) {
-                    const p = result.faceLandmarks[0];
-                    // Calculate mouth distance
-                    const m = Math.abs(p[13].y - p[14].y) * 1000;
+            // PART 2: THE AI (Loading after a 1-second delay to prevent crashing)
+            setTimeout(async () => {
+                try {
+                    // We manually import the module here
+                    const { FaceLandmarker, FilesetResolver } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs");
                     
-                    if (m > 30 && !lastM) {
-                        phrases[idx].classList.remove("active");
-                        idx = (idx + 1) % phrases.length;
-                        phrases[idx].classList.add("active");
-                        lastM = true;
-                    } else if (m < 20) { 
-                        lastM = false; 
+                    const resolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
+                    const landmarker = await FaceLandmarker.createFromOptions(resolver, {
+                        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
+                        runningMode: "VIDEO"
+                    });
+
+                    status.innerText = "SYSTEM READY: Tracking Mouth & Eyes";
+                    status.style.background = "green";
+
+                    const phrases = document.querySelectorAll(".phrase");
+                    let idx = 0;
+                    let lastM = false;
+
+                    function detect() {
+                        const result = landmarker.detectForVideo(video, performance.now());
+                        if (result.faceLandmarks && result.faceLandmarks[0]) {
+                            const p = result.faceLandmarks[0];
+                            const m = Math.abs(p[13].y - p[14].y) * 1000;
+                            
+                            if (m > 30 && !lastM) {
+                                phrases[idx].classList.remove("active");
+                                idx = (idx + 1) % phrases.length;
+                                phrases[idx].classList.add("active");
+                                lastM = true;
+                            } else if (m < 20) { lastM = false; }
+                        }
+                        requestAnimationFrame(detect);
                     }
+                    detect();
+                } catch (aiErr) {
+                    status.innerText = "AI FAILED TO LOAD: " + aiErr.message;
+                    status.style.background = "orange";
                 }
-                requestAnimationFrame(detect);
-            }
-            detect();
+            }, 1000);
 
-        } catch (err) {
-            status.innerText = "CRITICAL ERROR: " + err.message;
+        } catch (camErr) {
+            status.innerText = "CAMERA FAILED: " + camErr.name;
             status.style.background = "red";
-            console.error(err);
         }
-    };
-
-    // Attach the function to the button
-    btn.addEventListener("click", window.startCommunicationApp);
+    }
 </script>
 </body>
 </html>
