@@ -2,29 +2,46 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyrus Voice Link</title>
+    <title>Cyrus Tilt-Link</title>
     <style>
-        body { background: #000; color: #ff0; font-family: sans-serif; text-align: center; margin: 0; overflow: hidden; }
-        #status { background: #333; color: #fff; padding: 15px; font-weight: bold; }
-        .phrase { font-size: 2.5rem; padding: 25px; margin: 10px; border: 8px solid #444; border-radius: 15px; transition: 0.1s; }
-        .active { border-color: #ff0; background: #222; transform: scale(1.05); box-shadow: 0 0 20px #ff0; }
-        #start-btn { width: 90%; padding: 30px; margin: 20px; font-size: 1.5rem; background: #ff0; color: #000; border: none; font-weight: bold; border-radius: 10px; }
-        #vid { width: 140px; height: 105px; background: #222; border: 2px solid #0f0; transform: scaleX(-1); margin-top: 5px; }
+        body { background: #000; color: #fff; font-family: sans-serif; margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        #status { background: #333; padding: 10px; font-weight: bold; text-align: center; font-size: 14px; }
+        
+        #choice-container { display: flex; flex: 1; width: 100%; position: relative; }
+        
+        .zone { 
+            flex: 1; display: flex; align-items: center; justify-content: center; 
+            font-size: 5rem; font-weight: bold; transition: 0.3s; opacity: 0.3;
+        }
+        #left-zone { background: #ff0000; color: white; } /* RED NO */
+        #right-zone { background: #00ff00; color: black; } /* GREEN YES */
+        
+        .highlight { opacity: 1.0; transform: scale(1.05); box-shadow: inset 0 0 50px #fff; }
+
+        #vid-wrapper { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 240px; height: 180px; border: 4px solid #555; background: #222; z-index: 10;
+        }
+        video { width: 100%; height: 100%; transform: scaleX(-1); object-fit: cover; }
+
+        #start-btn { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 40px; font-size: 2rem; background: #ff0; color: #000; z-index: 100; border: none; border-radius: 20px;
+        }
     </style>
 </head>
 <body>
 
-<div id="status">VPN ACTIVE? READY TO START</div>
-<button id="start-btn" onclick="main()">TAP TO START WITH VOICE</button>
+<div id="status">VPN ON? READY</div>
+<button id="start-btn" onclick="init()">START TILT-CHOICE</button>
 
-<br>
-<video id="vid" autoplay playsinline muted></video>
-
-<div id="phrases">
-    <div class="phrase active">YES</div>
-    <div class="phrase">NO</div>
-    <div class="phrase">HELP</div>
-    <div class="phrase">HUNGRY</div>
+<div id="choice-container">
+    <div id="left-zone" class="zone">NO</div>
+    <div id="right-zone" class="zone">YES</div>
+    
+    <div id="vid-wrapper">
+        <video id="vid" autoplay playsinline muted></video>
+    </div>
 </div>
 
 <script type="module">
@@ -32,14 +49,12 @@
 
     const status = document.getElementById("status");
     const video = document.getElementById("vid");
-    const btn = document.getElementById("start-btn");
-    const phrases = document.querySelectorAll(".phrase");
-
-    // Pre-load the voice engine
+    const leftZone = document.getElementById("left-zone");
+    const rightZone = document.getElementById("right-zone");
     const synth = window.speechSynthesis;
 
-    window.main = async function() {
-        btn.style.display = "none";
+    window.init = async function() {
+        document.getElementById("start-btn").style.display = "none";
         status.innerText = "Connecting...";
 
         try {
@@ -52,42 +67,66 @@
                 runningMode: "VIDEO"
             });
 
-            status.innerText = "VOICE ACTIVE - OPEN MOUTH TO SPEAK";
+            status.innerText = "ACTIVE: TILT HEAD LEFT OR RIGHT";
             status.style.background = "green";
 
-            let i = 0;
-            let lastM = false;
-            let lastSpeakTime = 0;
+            let currentSelection = null;
+            let dwellStart = 0;
 
             function loop() {
                 const result = landmarker.detectForVideo(video, performance.now());
+                let detectedSide = null;
+
                 if (result.faceLandmarks && result.faceLandmarks[0]) {
                     const p = result.faceLandmarks[0];
-                    const mouthDist = Math.abs(p[13].y - p[14].y) * 1000;
                     
-                    // Trigger if mouth opens wide AND 2 seconds have passed since last speech
-                    if (mouthDist > 35 && !lastM && (Date.now() - lastSpeakTime > 2000)) {
-                        
-                        // 1. Move the highlight
-                        phrases[i].classList.remove("active");
-                        i = (i + 1) % phrases.length;
-                        phrases[i].classList.add("active");
+                    // We compare the X position of the nose (1) vs the ears (234, 454)
+                    // Or more simply: Rotation Yaw. 
+                    // To keep it robust, we check if the nose moves significantly left or right of the screen center
+                    const noseX = p[1].x; 
 
-                        // 2. Speak the phrase
-                        const text = phrases[i].innerText;
-                        const utter = new SpeechSynthesisUtterance(text);
-                        utter.pitch = 1.2; // Slightly higher pitch for a child-like tone
-                        utter.rate = 0.9;  // Slightly slower for clarity
-                        synth.speak(utter);
-
-                        lastSpeakTime = Date.now();
-                        lastM = true;
-                    } else if (mouthDist < 20) { 
-                        lastM = false; 
+                    if (noseX > 0.65) { // Face turned significantly LEFT (mirrored)
+                        detectedSide = "LEFT";
+                    } else if (noseX < 0.35) { // Face turned significantly RIGHT (mirrored)
+                        detectedSide = "RIGHT";
                     }
                 }
+
+                // Handle visual highlighting and Speech
+                updateUI(detectedSide);
                 requestAnimationFrame(loop);
             }
+
+            function updateUI(side) {
+                leftZone.classList.remove("highlight");
+                rightZone.classList.remove("highlight");
+
+                if (side === "LEFT") {
+                    leftZone.classList.add("highlight");
+                    handleDwell("NO");
+                } else if (side === "RIGHT") {
+                    rightZone.classList.add("highlight");
+                    handleDwell("YES");
+                } else {
+                    currentSelection = null; // Reset if in neutral
+                }
+            }
+
+            function handleDwell(word) {
+                if (currentSelection !== word) {
+                    currentSelection = word;
+                    dwellStart = Date.now();
+                } else {
+                    // If they stay in the zone for 800ms, speak
+                    if (Date.now() - dwellStart > 800) {
+                        const utter = new SpeechSynthesisUtterance(word);
+                        utter.pitch = 1.2;
+                        synth.speak(utter);
+                        dwellStart = Date.now() + 2000; // 2 second pause after speaking
+                    }
+                }
+            }
+
             loop();
 
         } catch (e) {
