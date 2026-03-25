@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>AAC Communicator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'Arial Black', Arial, sans-serif;
+    background: #111;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    touch-action: manipulation;
+  }
+
+  /* ── SETUP SCREEN ── */
+  #setup-screen {
+    position: fixed; inset: 0;
+    background: #111;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px; z-index: 200; padding: 24px;
+    text-align: center;
+  }
+  #setup-screen h1 { font-size: 30px; font-weight: 900; line-height: 1.2; }
+  #setup-screen p  { font-size: 16px; color: #aaa; max-width: 340px; line-height: 1.6; }
+  .big-emoji { font-size: 64px; }
+
+  .settings-box {
+    background: #222; border-radius: 16px;
+    padding: 18px; width: 100%; max-width: 380px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .setting-row {
+    display: flex; align-items: center;
+    justify-content: space-between; gap: 10px;
+  }
+  .setting-row label { font-size: 15px; color: #ccc; flex-shrink: 0; }
+  .setting-row input[type=range] { flex: 1; accent-color: #4ade80; height: 6px; }
+  .setting-row span { font-size: 15px; font-weight: 700; min-width: 36px; text-align: right; }
+
+  #start-btn {
+    background: #4ade80; color: #000;
+    border: none; font-size: 26px; font-weight: 900;
+    padding: 20px 56px; border-radius: 18px;
+    cursor: pointer; text-transform: uppercase;
+    letter-spacing: 1px; width: 100%; max-width: 380px;
+  }
+  #start-btn:active { transform: scale(0.97); }
+
+  .note {
+    font-size: 13px; color: #555;
+    max-width: 340px; line-height: 1.5;
+  }
+
+  /* ── MAIN APP ── */
+  #app { display: none; flex-direction: column; height: 100vh; width: 100vw; }
+
+  #status-bar {
+    display: flex; align-items: center;
+    background: #1a1a1a; padding: 6px 14px;
+    min-height: 42px; gap: 10px; flex-shrink: 0;
+  }
+  #status-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #f44; flex-shrink: 0;
+  }
+  #status-dot.active { background: #4ade80; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #status-text { font-size: 13px; color: #888; flex: 1; }
+  #dir-label { font-size: 13px; color: #666; flex-shrink: 0; }
+
+  #dwell-bar-wrap {
+    height: 8px; background: #333; border-radius: 4px;
+    overflow: hidden; flex: 1;
+  }
+  #dwell-bar {
+    height: 100%; width: 0%;
+    background: #fff; border-radius: 4px;
+    transition: width 0.08s linear;
+  }
+
+  /* ── GRID ── */
+  #grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    flex: 1; gap: 8px; padding: 8px;
+  }
+
+  .card {
+    border-radius: 22px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+    position: relative;
+    border: 6px solid transparent;
+    transition: border-color 0.12s, transform 0.12s, filter 0.12s;
+    user-select: none;
+  }
+  .card:active { transform: scale(0.96); }
+  .card.highlighted {
+    border-color: #fff;
+    transform: scale(1.03);
+    filter: brightness(1.25);
+  }
+  @keyframes flash-card {
+    0%   { filter: brightness(1); }
+    35%  { filter: brightness(2.8); }
+    100% { filter: brightness(1); }
+  }
+  .card.selected { animation: flash-card 0.45s ease-out; }
+
+  .card-icon  { font-size: 80px; line-height: 1; margin-bottom: 10px; }
+  .card-label {
+    font-size: 38px; font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px; text-align: center;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    padding: 0 10px;
+  }
+
+  #card-hungry  { background: #D32F2F; }
+  #card-thirsty { background: #1565C0; }
+  #card-pain    { background: #E65100; }
+  #card-tired   { background: #6A1B9A; }
+
+  /* ── SPEECH OVERLAY ── */
+  #speech-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.88);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 300;
+  }
+  #speech-overlay.show { display: flex; }
+  #speech-icon { font-size: 130px; margin-bottom: 24px; }
+  #speech-word {
+    font-size: 86px; font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 4px; text-align: center;
+    padding: 0 16px;
+  }
+
+  #hint {
+    text-align: center; font-size: 14px; color: #666;
+    padding: 8px 12px; background: #181818; flex-shrink: 0;
+  }
+
+  video { display: none; position: absolute; }
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen">
+  <div class="big-emoji">👁️</div>
+  <h1>AAC Communicator</h1>
+  <p>Move your head to highlight a picture. Open your mouth wide to speak it.</p>
+
+  <div class="settings-box">
+    <div class="setting-row">
+      <label>Dwell time</label>
+      <input type="range" id="dwell-set" min="1" max="6" step="0.5" value="2.5">
+      <span id="dwell-val">2.5s</span>
+    </div>
+    <div class="setting-row">
+      <label>Head sensitivity</label>
+      <input type="range" id="sens-set" min="1" max="5" step="1" value="3">
+      <span id="sens-val">3</span>
+    </div>
+  </div>
+
+  <button id="start-btn" onclick="startApp()">▶ Start</button>
+  <p class="note">Requires Chrome on Android. Allow camera permission when asked. Good face lighting helps tracking.</p>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div id="status-bar">
+    <div id="status-dot"></div>
+    <span id="status-text">Starting…</span>
+    <div id="dwell-bar-wrap"><div id="dwell-bar"></div></div>
+    <span id="dir-label">—</span>
+  </div>
+
+  <div id="grid">
+    <div class="card" id="card-hungry"  ontouchstart="cardTouch('hungry','🍽️')"  onclick="cardTouch('hungry','🍽️')">
+      <div class="card-icon">🍽️</div>
+      <div class="card-label">Hungry</div>
+    </div>
+    <div class="card" id="card-thirsty" ontouchstart="cardTouch('thirsty','💧')" onclick="cardTouch('thirsty','💧')">
+      <div class="card-icon">💧</div>
+      <div class="card-label">Thirsty</div>
+    </div>
+    <div class="card" id="card-pain"    ontouchstart="cardTouch('pain','😣')"    onclick="cardTouch('pain','😣')">
+      <div class="card-icon">😣</div>
+      <div class="card-label">Pain</div>
+    </div>
+    <div class="card" id="card-tired"   ontouchstart="cardTouch('tired','😴')"   onclick="cardTouch('tired','😴')">
+      <div class="card-icon">😴</div>
+      <div class="card-label">Tired</div>
+    </div>
+  </div>
+
+  <div id="hint">Look at a picture → open mouth wide to choose</div>
+</div>
+
+<!-- SPEECH OVERLAY -->
+<div id="speech-overlay">
+  <div id="speech-icon">🍽️</div>
+  <div id="speech-word">Hungry</div>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+
+<script>
+// ── Config ──────────────────────────────────────────────
+let DWELL_MS   = 2500;
+let SENSITIVITY = 3;
+
+const cards = [
+  { id:'card-hungry',  label:'Hungry',  icon:'🍽️', pos:'top-left'     },
+  { id:'card-thirsty', label:'Thirsty', icon:'💧', pos:'top-right'    },
+  { id:'card-pain',    label:'Pain',    icon:'😣', pos:'bottom-left'  },
+  { id:'card-tired',   label:'Tired',   icon:'😴', pos:'bottom-right' },
+];
+
+// ── State ────────────────────────────────────────────────
+let currentCard   = null;
+let dwellStart    = null;
+let dwellInterval = null;
+let speechTimeout = null;
+let mouthCooldown = false;
+let lastMouthOpen = false;
+let trackingActive = false;
+
+// ── Settings listeners ────────────────────────────────────
+document.getElementById('dwell-set').addEventListener('input', function() {
+  DWELL_MS = parseFloat(this.value) * 1000;
+  document.getElementById('dwell-val').textContent = this.value + 's';
+});
+document.getElementById('sens-set').addEventListener('input', function() {
+  SENSITIVITY = parseInt(this.value);
+  document.getElementById('sens-val').textContent = this.value;
+});
+
+// ── Speak ─────────────────────────────────────────────────
+function speak(word, icon) {
+  if (speechTimeout) clearTimeout(speechTimeout);
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+  document.getElementById('speech-word').textContent =
+    word.charAt(0).toUpperCase() + word.slice(1);
+  document.getElementById('speech-icon').textContent = icon;
+  document.getElementById('speech-overlay').classList.add('show');
+
+  // Speak with slight delay so overlay renders first
+  setTimeout(() => {
+    const u = new SpeechSynthesisUtterance(word);
+    u.rate   = 0.82;
+    u.volume = 1.0;
+    u.pitch  = 1.05;
+    if (window.speechSynthesis) window.speechSynthesis.speak(u);
+  }, 80);
+
+  speechTimeout = setTimeout(() =>
+    document.getElementById('speech-overlay').classList.remove('show'), 3200);
+}
+
+// ── Card touch fallback ───────────────────────────────────
+function cardTouch(word, icon) {
+  speak(word, icon);
+}
+
+// ── Highlight & Dwell ─────────────────────────────────────
+function highlightCard(pos) {
+  const match = pos ? cards.find(c => c.pos === pos) : null;
+  const newId = match ? match.id : null;
+
+  if (newId === currentCard) {
+    // same card — check if dwell completed
+    if (dwellStart !== null) {
+      const elapsed = Date.now() - dwellStart;
+      if (elapsed >= DWELL_MS && !mouthCooldown) {
+        // auto-select via dwell (no mouth needed if dwell completes)
+        // actually we keep mouth-select as primary; dwell just shows progress
+      }
+    }
+    return;
+  }
+
+  // Changed card
+  cards.forEach(c => document.getElementById(c.id).classList.remove('highlighted'));
+  clearDwell();
+  currentCard = newId;
+
+  if (match) {
+    document.getElementById(match.id).classList.add('highlighted');
+    startDwell(match);
+  }
+}
+
+function startDwell(cardInfo) {
+  dwellStart = Date.now();
+  clearInterval(dwellInterval);
+  dwellInterval = setInterval(() => {
+    if (!dwellStart) return;
+    const pct = Math.min(100, ((Date.now() - dwellStart) / DWELL_MS) * 100);
+    document.getElementById('dwell-bar').style.width = pct + '%';
+    // Auto-select when dwell completes
+    if (pct >= 100 && !mouthCooldown) {
+      selectCurrent();
+    }
+  }, 60);
+}
+
+function clearDwell() {
+  clearInterval(dwellInterval);
+  dwellStart = null;
+  document.getElementById('dwell-bar').style.width = '0%';
+}
+
+function selectCurrent() {
+  if (!currentCard) return;
+  const match = cards.find(c => c.id === currentCard);
+  if (!match) return;
+  const el = document.getElementById(currentCard);
+  el.classList.add('selected');
+  setTimeout(() => el.classList.remove('selected'), 600);
+  speak(match.label, match.icon);
+  mouthCooldown = true;
+  clearDwell();
+  currentCard = null;
+  cards.forEach(c => document.getElementById(c.id).classList.remove('highlighted'));
+  setTimeout(() => { mouthCooldown = false; }, 2500);
+}
+
+// ── Mouth select ─────────────────────────────────────────
+function checkMouth(isOpen) {
+  if (isOpen && !lastMouthOpen && !mouthCooldown && currentCard) {
+    selectCurrent();
+  }
+  lastMouthOpen = isOpen;
+}
+
+// ── Head direction → quadrant ─────────────────────────────
+function getQuadrant(yaw, pitch) {
+  // sensitivity 1=very sensitive, 5=needs big movement
+  // threshold scales: sens 1 → 4deg, sens 5 → 16deg
+  const threshold = SENSITIVITY * 3.2;
+  const left   = yaw   >  threshold;
+  const right  = yaw   < -threshold;
+  const up     = pitch > threshold * 0.9;
+  const down   = pitch < -threshold * 0.9;
+  if (up   && left)  return 'top-left';
+  if (up   && right) return 'top-right';
+  if (down && left)  return 'bottom-left';
+  if (down && right) return 'bottom-right';
+  return null;
+}
+
+// ── Start App ─────────────────────────────────────────────
+async function startApp() {
+  DWELL_MS    = parseFloat(document.getElementById('dwell-set').value) * 1000;
+  SENSITIVITY = parseInt(document.getElementById('sens-set').value);
+
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('status-text').textContent = 'Requesting camera…';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+    document.getElementById('status-dot').classList.add('active');
+    document.getElementById('status-text').textContent = 'Loading face tracker…';
+    loadMediapipe(video);
+  } catch(e) {
+    document.getElementById('status-text').textContent = 'No camera — tap cards to speak';
+    document.getElementById('hint').textContent = 'Tap any picture to speak it';
+  }
+}
+
+// ── Load MediaPipe ────────────────────────────────────────
+function loadMediapipe(video) {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js';
+  s.onload  = () => loadCameraUtils(video);
+  s.onerror = () => fallbackMode();
+  document.head.appendChild(s);
+}
+
+function loadCameraUtils(video) {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1632090290/camera_utils.js';
+  s.onload  = () => initTracking(video);
+  s.onerror = () => fallbackMode();
+  document.head.appendChild(s);
+}
+
+function fallbackMode() {
+  document.getElementById('status-dot').classList.add('active');
+  document.getElementById('status-text').textContent = 'Tap mode (tracker unavailable)';
+  document.getElementById('hint').textContent = 'Tap any picture to speak it';
+}
+
+function initTracking(video) {
+  try {
+    const fm = new FaceMesh({
+      locateFile: f =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${f}`
+    });
+    fm.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    fm.onResults(onFaceResults);
+
+    const cam = new Camera(video, {
+      onFrame: async () => { try { await fm.send({ image: video }); } catch(_){} },
+      width: 320, height: 240
+    });
+    cam.start();
+    trackingActive = true;
+    document.getElementById('status-text').textContent = 'Head tracking active';
+    document.getElementById('hint').textContent =
+      'Tilt head to choose → open mouth to speak';
+  } catch(e) {
+    fallbackMode();
+  }
+}
+
+function onFaceResults(results) {
+  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+    document.getElementById('dir-label').textContent = 'No face';
+    highlightCard(null);
+    return;
+  }
+
+  const lm = results.multiFaceLandmarks[0];
+
+  // Head pose estimation using key landmarks
+  const nose      = lm[1];
+  const forehead  = lm[10];
+  const chin      = lm[152];
+  const leftEar   = lm[234];
+  const rightEar  = lm[454];
+
+  const faceW  = Math.abs(rightEar.x - leftEar.x) || 0.01;
+  const faceH  = Math.abs(chin.y - forehead.y)     || 0.01;
+  const centerX = (leftEar.x + rightEar.x) / 2;
+  const centerY = (forehead.y + chin.y) / 2;
+
+  // yaw: positive = face turned left (nose moves right of center)
+  // pitch: positive = face tilted up (nose above center)
+  const yaw   =  ((nose.x - centerX) / faceW)  * 100;
+  const pitch = -((nose.y - centerY) / faceH)  * 100;
+
+  // Mouth open detection: distance between upper and lower lip
+  const upperLip = lm[13];
+  const lowerLip = lm[14];
+  const mouthH   = Math.abs(lowerLip.y - upperLip.y);
+  const isOpen   = mouthH > 0.038;
+
+  const quad = getQuadrant(yaw, pitch);
+  const labels = {
+    'top-left':'↖','top-right':'↗','bottom-left':'↙','bottom-right':'↘'
+  };
+  document.getElementById('dir-label').textContent =
+    (quad ? labels[quad] : '·') + (isOpen ? ' 👄' : '');
+
+  highlightCard(quad);
+  checkMouth(isOpen);
+}
+
+// Prevent accidental page scroll/zoom
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+window.onerror = () => {};
+</script>
+</body>
+</html>
