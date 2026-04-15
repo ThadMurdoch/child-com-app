@@ -1,123 +1,137 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyrus Tilt-Link Pro</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs" type="module"></script>
+    <title>Cyrus Tilt-Link</title>
     <style>
-        body { background: #000; color: #fff; font-family: sans-serif; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
-        #status { background: #222; padding: 10px; text-align: center; font-size: 14px; border-bottom: 1px solid #444; }
+        body { background: #000; color: #fff; font-family: sans-serif; margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        #status { background: #333; padding: 10px; font-weight: bold; text-align: center; font-size: 14px; }
         
         #choice-container { display: flex; flex: 1; width: 100%; position: relative; }
+        
         .zone { 
             flex: 1; display: flex; align-items: center; justify-content: center; 
-            font-size: clamp(3rem, 15vw, 8rem); font-weight: bold; opacity: 0.2; transition: 0.2s;
+            font-size: 5rem; font-weight: bold; transition: 0.3s; opacity: 0.3;
         }
-        #left-zone { background: #ff0000; } /* NO */
-        #right-zone { background: #00ff00; color: #000; } /* YES */
-        .highlight { opacity: 1.0; transform: scale(1.02); }
+        #left-zone { background: #ff0000; color: white; } /* RED NO */
+        #right-zone { background: #00ff00; color: black; } /* GREEN YES */
+        
+        .highlight { opacity: 1.0; transform: scale(1.05); box-shadow: inset 0 0 50px #fff; }
 
-        #video-wrapper { 
+        #vid-wrapper { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            width: 200px; height: 150px; border: 3px solid #ffff00; border-radius: 10px; overflow: hidden; z-index: 10;
+            width: 240px; height: 180px; border: 4px solid #555; background: #222; z-index: 10;
         }
         video { width: 100%; height: 100%; transform: scaleX(-1); object-fit: cover; }
-        
+
         #start-btn { 
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            padding: 40px; font-size: 2rem; background: #ffff00; color: #000; border: none; border-radius: 20px; z-index: 100; font-weight: bold;
+            padding: 40px; font-size: 2rem; background: #ff0; color: #000; z-index: 100; border: none; border-radius: 20px;
         }
     </style>
 </head>
 <body>
 
-<div id="status">VPN ON? System Ready</div>
-<button id="start-btn">TAP TO START</button>
+<div id="status">VPN ON? READY</div>
+<button id="start-btn" onclick="init()">START TILT-CHOICE</button>
 
 <div id="choice-container">
     <div id="left-zone" class="zone">NO</div>
     <div id="right-zone" class="zone">YES</div>
-    <div id="video-wrapper">
-        <video id="webcam" autoplay playsinline></video>
+    
+    <div id="vid-wrapper">
+        <video id="vid" autoplay playsinline muted></video>
     </div>
 </div>
 
 <script type="module">
-    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/face_landmarker_bundle.mjs";
+    import { FaceLandmarker, FilesetResolver } from "https://unpkg.com/@mediapipe/tasks-vision@0.10.0";
 
-    const video = document.getElementById("webcam");
     const status = document.getElementById("status");
-    const startBtn = document.getElementById("start-btn");
+    const video = document.getElementById("vid");
     const leftZone = document.getElementById("left-zone");
     const rightZone = document.getElementById("right-zone");
-    
-    let faceLandmarker;
-    let lastSelection = null;
-    let dwellTimer = null;
+    const synth = window.speechSynthesis;
 
-    // Load AI Assets
-    const setupAI = async () => {
-        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/face_landmarker@0.10.0/wasm");
-        faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { 
-                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-                delegate: "GPU" 
-            },
-            runningMode: "VIDEO"
-        });
-    };
+    window.init = async function() {
+        document.getElementById("start-btn").style.display = "none";
+        status.innerText = "Connecting...";
 
-    const startCamera = async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        video.srcObject = stream;
-        video.addEventListener("loadeddata", predictLoop);
-    };
-
-    startBtn.addEventListener("click", async () => {
-        startBtn.style.display = "none";
-        status.innerText = "Initializing AI & Camera...";
         try {
-            await setupAI();
-            await startCamera();
-            status.innerText = "ACTIVE: TILT HEAD";
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            video.srcObject = stream;
+
+            const res = await FilesetResolver.forVisionTasks("https://unpkg.com/@mediapipe/tasks-vision@0.10.0/wasm");
+            const landmarker = await FaceLandmarker.createFromOptions(res, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
+                runningMode: "VIDEO"
+            });
+
+            status.innerText = "ACTIVE: TILT HEAD LEFT OR RIGHT";
             status.style.background = "green";
-        } catch (err) {
-            status.innerText = "Error: " + err.message;
+
+            let currentSelection = null;
+            let dwellStart = 0;
+
+            function loop() {
+                const result = landmarker.detectForVideo(video, performance.now());
+                let detectedSide = null;
+
+                if (result.faceLandmarks && result.faceLandmarks[0]) {
+                    const p = result.faceLandmarks[0];
+                    
+                    // We compare the X position of the nose (1) vs the ears (234, 454)
+                    // Or more simply: Rotation Yaw. 
+                    // To keep it robust, we check if the nose moves significantly left or right of the screen center
+                    const noseX = p[1].x; 
+
+                    if (noseX > 0.65) { // Face turned significantly LEFT (mirrored)
+                        detectedSide = "LEFT";
+                    } else if (noseX < 0.35) { // Face turned significantly RIGHT (mirrored)
+                        detectedSide = "RIGHT";
+                    }
+                }
+
+                // Handle visual highlighting and Speech
+                updateUI(detectedSide);
+                requestAnimationFrame(loop);
+            }
+
+            function updateUI(side) {
+                leftZone.classList.remove("highlight");
+                rightZone.classList.remove("highlight");
+
+                if (side === "LEFT") {
+                    leftZone.classList.add("highlight");
+                    handleDwell("NO");
+                } else if (side === "RIGHT") {
+                    rightZone.classList.add("highlight");
+                    handleDwell("YES");
+                } else {
+                    currentSelection = null; // Reset if in neutral
+                }
+            }
+
+            function handleDwell(word) {
+                if (currentSelection !== word) {
+                    currentSelection = word;
+                    dwellStart = Date.now();
+                } else {
+                    // If they stay in the zone for 800ms, speak
+                    if (Date.now() - dwellStart > 800) {
+                        const utter = new SpeechSynthesisUtterance(word);
+                        utter.pitch = 1.2;
+                        synth.speak(utter);
+                        dwellStart = Date.now() + 2000; // 2 second pause after speaking
+                    }
+                }
+            }
+
+            loop();
+
+        } catch (e) {
+            status.innerText = "ERROR: " + e.message;
             status.style.background = "red";
-        }
-    });
-
-    function predictLoop() {
-        const results = faceLandmarker.detectForVideo(video, performance.now());
-        let currentSide = null;
-
-        if (results.faceLandmarks && results.faceLandmarks[0]) {
-            const nose = results.faceLandmarks[0][1]; // Nose tip point
-            
-            if (nose.x > 0.62) currentSide = "NO";
-            else if (nose.x < 0.38) currentSide = "YES";
-        }
-
-        updateUI(currentSide);
-        requestAnimationFrame(predictLoop);
-    }
-
-    function updateUI(side) {
-        leftZone.classList.toggle("highlight", side === "NO");
-        rightZone.classList.toggle("highlight", side === "YES");
-
-        if (side && side !== lastSelection) {
-            clearTimeout(dwellTimer);
-            lastSelection = side;
-            dwellTimer = setTimeout(() => {
-                const utter = new SpeechSynthesisUtterance(side);
-                utter.pitch = 1.3;
-                window.speechSynthesis.speak(utter);
-            }, 800); // 0.8 second dwell time
-        } else if (!side) {
-            clearTimeout(dwellTimer);
-            lastSelection = null;
         }
     }
 </script>
